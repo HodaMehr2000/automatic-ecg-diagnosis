@@ -146,3 +146,5 @@ data/*
 *.hdf5
 
 .freebuff/
+
+outputs/classifier
