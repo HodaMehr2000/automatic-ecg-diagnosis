@@ -145,3 +145,4 @@ data/*
 # Avoid large files
 *.hdf5
 
+.freebuff/
