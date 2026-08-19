@@ -1,0 +1,247 @@
+============================================================
+FINAL REPORT: Leakage-Free MIT-BIH / INCART ECG Classification
+============================================================
+Date: August 19, 2026
+
+1. DATASETS USED
+----------------
+MIT-BIH Arrhythmia Database:
+  - Location: d:/git/mamintoosi-cs/holter-ecg-analysis/data/mit-bih
+  - Records: 48
+  - Sampling rate: 360 Hz
+  - Original leads: 2 (typically MLII + V1/V5/V2)
+  - Annotations: WFDB .atr format (2274 annotations in record 100)
+  - Annotation types: N, L, R, A, V, F, /, Q, a, j, e, J, S, E, etc.
+
+St. Petersburg INCART Arrhythmia Database:
+  - Location: d:/git/mamintoosi-cs/holter-ecg-analysis/data/incartdb
+  - Records: 75
+  - Patients: 32
+  - Sampling rate: 257 Hz
+  - Leads: 12-lead (I, II, III, AVR, AVL, AVF, V1-V6)
+  - Annotations: WFDB .atr format
+  - Annotation types: N, V, A, F, R, S, j, n, B, Q
+
+2. SUBJECT/RECORD MAPPING
+--------------------------
+MIT-BIH (44 unique subjects from 48 records):
+  Shared subjects:
+    S_201_202: records 201, 202
+    S_203_215: records 203, 215
+    S_231_232: records 231, 232
+    S_233_234: records 233, 234
+  All other records: 1 subject each
+
+INCART (32 patients from 75 records):
+  Patient 1: I01, I02
+  Patient 2: I03, I04, I05
+  Patient 3: I06, I07
+  ... (see outputs/beat_classifier/incart_metadata.json)
+
+3. AAMI ANNOTATION MAPPING
+----------------------------
+  N (Normal): N, L, R, e, j, n
+  S (Supraventricular): a, A, J, S
+  V (Ventricular): V, E
+  F (Fusion): F
+  Q (Unknown/Paced): /, f, Q, B
+  Ignored (non-beat): +, ~, |, =, x, (, ), p, t, u, etc.
+
+4. BEAT COUNTS PER CLASS (MIT-BIH)
+------------------------------------
+              Train      Val      Test
+  N:         64,707     9,558   16,284
+  S:          2,444        37      299
+  V:          3,706     1,153    2,374
+  F:            410         4      388
+  Q:          3,873     2,084    2,077
+  Total:     75,140    12,836   21,422
+
+  Subject-level split (70/15/15):
+    Train: 30 subjects, 33 records
+    Val:    6 subjects,  6 records
+    Test:   8 subjects,  9 records
+
+5. DATA LEAKAGE VERIFICATION
+------------------------------
+  Record overlaps:
+    Train intersect Val:   0 records - PASS
+    Train intersect Test:  0 records - PASS
+    Val intersect Test:    0 records - PASS
+
+  Beat-level overlaps:
+    Train intersect Val:   0 beats - PASS
+    Train intersect Test:  0 beats - PASS
+    Val intersect Test:    0 beats - PASS
+
+  Class weights: computed from training data ONLY
+  Model selection: based on validation loss ONLY
+  Final evaluation: test set used ONCE
+
+  [OK] NO DATA LEAKAGE DETECTED
+
+6. INPUT PREPROCESSING
+-----------------------
+  Input lead:
+    MIT-BIH: MLII (preferred), fallback to V5/V1
+    INCART: Lead II (MLII-equivalent)
+  Sampling frequency: 250 Hz (resampled from 360/257 Hz)
+  Beat window: 0.8s before + 0.8s after R-peak = 1.6s
+  Beat length: 400 samples (250 Hz x 1.6s)
+  Normalization: Z-score (per-beat: subtract mean, divide by std)
+  Tensor shape: (1, 400) -- single channel
+
+7. MODEL ARCHITECTURE
+-----------------------
+  Model: ResNet1D_Beat (lightweight 1D residual network)
+  Parameters: 246,741
+
+  Architecture:
+    Stem: Conv1d(1->16, k=15, s=2) + BN + ReLU + Dropout(0.15)
+    Block1: ResBlock(16->32, k=7, s=2) + Dropout(0.3)
+    Block2: ResBlock(32->64, k=7, s=2) + Dropout(0.3)
+    Block3: ResBlock(64->128, k=7, s=2) + Dropout(0.3)
+    GAP: AdaptiveAvgPool1d(1)
+    FC: 128 -> 64 -> 5 classes + Dropout(0.3)
+
+  Input shape: (B, 1, 400)
+  Output shape: (B, 5) -- logits for N, S, V, F, Q
+
+8. TRAINING CONFIGURATION
+---------------------------
+  Optimizer: AdamW (lr=1e-3, weight_decay=1e-4)
+  Scheduler: ReduceLROnPlateau (factor=0.5, patience=3)
+  Loss: CrossEntropyLoss with class weights (inverse frequency)
+  Batch size: 128
+  Epochs: 8 (best at epoch 5)
+  Early stopping: patience=5
+  Gradient clipping: max_norm=1.0
+  Seed: 42
+  Device: CPU
+
+9. RUNTIME
+-----------
+  Time per epoch: ~47-51 seconds on CPU
+  Total training time: 388.1 seconds (6.5 minutes)
+  Beat extraction: ~30 seconds (one-time)
+
+10. MIT-BIH TEST RESULTS (Best Epoch 5)
+-----------------------------------------
+  Overall Accuracy:    0.9072
+  Balanced Accuracy:   0.6879
+  Macro F1:            0.6298
+  Weighted F1:         0.9159
+  Total test samples:  21,422
+
+  Per-class:
+  Class   Prec    Recall  Spec    F1      Support
+  N       0.9796  0.9159  0.9395  0.9467  16,284
+  S       0.2302  0.5351  0.9747  0.3219     299
+  V       0.7855  0.9751  0.9668  0.8701   2,374
+  F       0.0292  0.0361  0.9779  0.0323     388
+  Q       0.9783  0.9774  0.9977  0.9778   2,077
+
+  Confusion Matrix (rows=true, cols=pred):
+             N     S     V     F     Q
+  N      14915   514   379   463    13
+  S        115   160    18     1     5
+  V         21    11  2315     1    26
+  F        142     0   231    14     1
+  Q         33    10     4     0  2030
+
+11. INCART EXTERNAL TEST RESULTS (No fine-tuning)
+---------------------------------------------------
+  Overall Accuracy:    0.8044
+  Balanced Accuracy:   0.5029
+  Macro F1:            0.3532
+  Total test samples:  175,763
+
+  Per-class:
+  Class   Prec    Recall  Spec    F1      Support
+  N       0.9841  0.8015  0.9103  0.8835  153,581
+  S       0.1503  0.7446  0.9526  0.2501    1,958
+  V       0.4941  0.8407  0.8895  0.6224   19,998
+  F       0.0053  0.1279  0.9701  0.0102      219
+  Q       0.0000  0.0000  0.9904  0.0000        7
+
+  Confusion Matrix:
+             N     S     V     F     Q
+  N     123094  7052 16911  5107  1417
+  S       252  1458   209    32     7
+  V      1641  1186 16812   103   256
+  F        93     4    91    28     3
+  Q         4     0     2     1     0
+
+12. RECORDS EXCLUDED AND WHY
+------------------------------
+  None. All 48 MIT-BIH records and 75 INCART records were used.
+  Records where MLII/Lead-II was not available (MIT-BIH 102, 104, 217)
+  were NOT excluded -- MLII fallback to V5/V1 was used.
+  (This should be documented: for strict Lead-II-only experiment,
+   records 102, 104, 217 should be excluded or handled differently.)
+
+  MIT-BIH records without MLII:
+    102: leads=[V5, V2] -> used V5
+    104: leads=[V5, V2] -> used V5
+    217: leads=[MLII, V1] -> used MLII (OK)
+
+13. CODE FILES CREATED
+-----------------------
+  aami_mapping.py         - AAMI EC57 annotation mapping table
+  beat_dataset.py         - Beat extraction, splitting, PyTorch Dataset
+  resnet1d_beat.py        - Lightweight ResNet1D (246K params)
+  train_beat_classifier.py - Training pipeline
+  evaluate_beat_classifier.py - MIT-BIH test evaluation
+  evaluate_external.py    - INCART external test
+
+  Output files:
+    outputs/beat_classifier/best_model.pth
+    outputs/beat_classifier/config.json
+    outputs/beat_classifier/training_results.json
+    outputs/beat_classifier/mitbih_test_results.json
+    outputs/beat_classifier/incart_external_results.json
+    outputs/beat_classifier/mitbih_metadata.json
+    outputs/beat_classifier/incart_metadata.json
+
+14. REPRODUCTION COMMANDS
+---------------------------
+  # Smoke test (1 epoch, ~50 seconds):
+  python train_beat_classifier.py --smoke_test
+
+  # Full training (8 epochs, ~6.5 minutes):
+  python train_beat_classifier.py --epochs 8 --batch_size 128
+
+  # MIT-BIH test evaluation:
+  python evaluate_beat_classifier.py
+
+  # INCART external test:
+  python evaluate_external.py
+
+  # Custom training:
+  python train_beat_classifier.py --epochs 10 --batch_size 64 --lr 5e-4
+
+15. CONCLUSIONS
+----------------
+  PRIORITY ORDER VERIFIED:
+  [x] NO DATA LEAKAGE - Subject-level splits, all checks passed
+  [x] CORRECT LABEL MAPPING - AAMI EC57 standard mapping used
+  [x] CORRECT ECG PREPROCESSING - Single lead, 250 Hz, z-normalized
+  [x] WORKING LIGHTWEIGHT EXPERIMENT - 246K param model, 6.5 min CPU
+  [x] PERFORMANCE - 90.7% test accuracy on MIT-BIH (8 epochs)
+
+  KEY FINDINGS:
+  - V (PVC) detection is excellent: 97.5% recall on MIT-BIH, 84% on INCART
+  - Q (paced) detection is excellent: 97.7% recall
+  - S (supraventricular) needs more training data (only 299 test samples)
+  - F (fusion) is hard to classify with very few samples (388 test)
+  - Cross-database drop is expected: 90.7% -> 80.4% accuracy
+  - The pipeline works correctly end-to-end
+
+  RECOMMENDATIONS FOR IMPROVEMENT:
+  - Train for more epochs (20-30) with GPU
+  - Use both MIT-BIH and INCART for training (with proper splits)
+  - Try data augmentation (time warping, noise injection)
+  - Experiment with attention mechanisms
+  - Use the full 12-lead information for INCART
+
+============================================================

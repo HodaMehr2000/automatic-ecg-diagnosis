@@ -1,0 +1,25 @@
+{
+  "model": "ResNet1D_Beat",
+  "n_classes": 5,
+  "classes": [
+    "N",
+    "S",
+    "V",
+    "F",
+    "Q"
+  ],
+  "input_channels": 1,
+  "input_length": 400,
+  "target_fs": 250,
+  "model_params": 246741,
+  "best_epoch": 5,
+  "test_acc": 0.9071982074502848,
+  "test_loss": 0.6376746268321748,
+  "class_weights": [
+    0.022782668471336365,
+    0.6031907200813293,
+    0.39778685569763184,
+    3.5956051349639893,
+    0.3806346654891968
+  ]
+}
