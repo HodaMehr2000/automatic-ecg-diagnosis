@@ -147,4 +147,4 @@ data/*
 
 .freebuff/
 
-outputs/classifier
+outputs/classifier/
