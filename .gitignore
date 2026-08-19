@@ -128,5 +128,20 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+
+data/*
+!data/README.md
+*.ecg
+*.dat
+*.hea
+*.info
+*.leadoff
+*.marker
+*.log
+*.atr
+*.ann
+*.csv
+
 # Avoid large files
 *.hdf5
+
